@@ -1,0 +1,29 @@
+name: IHSG Momentum Alert
+
+on:
+  schedule:
+    # 08:55 WIB = 01:55 UTC. GitHub cron pakai UTC.
+    # Jadwal cron gak selalu presisi ke detik, kadang delay beberapa menit
+    # pas traffic GitHub lagi rame, jadi kasih buffer 5 menit sebelum jam buka.
+    - cron: "55 1 * * 1-5"
+  workflow_dispatch: {}   # biar bisa trigger manual buat testing
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360   # 6 jam - cover 09:00-15:50 WIB + buffer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install yfinance requests pytz
+
+      - name: Run momentum monitor
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python ihsg_momentum_alert.py
