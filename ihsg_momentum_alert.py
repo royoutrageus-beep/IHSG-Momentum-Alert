@@ -23,6 +23,7 @@ import os
 import time
 import requests
 import yfinance as yf
+from curl_cffi import requests as cffi_requests
 from collections import deque
 from datetime import datetime, time as dtime
 import pytz
@@ -58,6 +59,11 @@ COOLDOWN_MINUTES    = 15     # jeda sebelum alert arah yang sama fire lagi
 TZ = pytz.timezone("Asia/Jakarta")
 MARKET_CLOSE = dtime(15, 50)
 
+# Session impersonate browser Chrome - Yahoo Finance suka nge-block request
+# polos dari IP server/cloud (termasuk GitHub Actions), jadi kita nyamar
+# pakai fingerprint browser asli biar gak ke-block.
+YF_SESSION = cffi_requests.Session(impersonate="chrome")
+
 # ── STATE ─────────────────────────────────────────────────────────────────
 ihsg_buffer = deque()              # (timestamp, price)
 last_alert_time = {"junam": None, "apresiasi": None}
@@ -80,11 +86,16 @@ def send_telegram(msg, chat_id=None):
         print(f"[WARN] gagal kirim telegram: {e}")
 
 
-def get_ihsg_price():
-    data = yf.Ticker(IHSG_TICKER).history(period="1d", interval="1m")
-    if data.empty:
-        return None
-    return float(data["Close"].iloc[-1])
+def get_ihsg_price(retries=2):
+    for attempt in range(retries):
+        try:
+            data = yf.Ticker(IHSG_TICKER, session=YF_SESSION).history(period="1d", interval="1m")
+            if not data.empty:
+                return float(data["Close"].iloc[-1])
+        except Exception as e:
+            print(f"[WARN] gagal ambil harga IHSG (percobaan {attempt+1}/{retries}): {e}")
+        time.sleep(3)
+    return None
 
 
 def get_bigcap_changes(window_minutes):
@@ -92,7 +103,7 @@ def get_bigcap_changes(window_minutes):
     changes = {}
     for tk in BIG_CAPS:
         try:
-            hist = yf.Ticker(tk).history(period="1d", interval="1m")
+            hist = yf.Ticker(tk, session=YF_SESSION).history(period="1d", interval="1m")
             if len(hist) < window_minutes + 1:
                 continue
             recent = hist["Close"].iloc[-window_minutes:]
